@@ -1,2 +1,2 @@
-- 👋 Hi, I’m @lidoliver
-- 👀 I’m interested in ...
+- Hi, I’m @lidoliver
+- Chillin
