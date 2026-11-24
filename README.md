@@ -17,6 +17,7 @@
 - [ps2-install](https://github.com/lidoliver/ps2-install): Installs PS2 games onto the console's internal HDD over the network, from Linux. (Shell · Bash · C · NBD)
 - [traffic-simulator](https://github.com/Vanguardium/traffic-simulator): Traffic simulation, built as a group project. (Java)
 - [APP2000_G10_25](https://github.com/MarcusWHE/APP2000_G10_25): Web app built by a team of six, run with Scrum. (JavaScript · MongoDB · Express · React · Node)
+- [omabateq](https://github.com/lidoliver/omabateq): Headset battery + live Easy Effects equalizer (preset, curve, bypass, output level) for the Omarchy bar (QML · Quickshell · Omarchy)
 
 **Now**
 

@@ -3,6 +3,11 @@
 
     python3 scripts/build.py                     # images + README pointing at GitHub
     python3 scripts/build.py --base assets       # README pointing at the local images (preview)
+    python3 scripts/build.py --offline           # use scripts/repos.json instead of the GitHub API
+
+The memory card's saves are your public repos, fetched from the GitHub API (set GITHUB_TOKEN to
+avoid the rate limit), with config.PROJECTS merged on top. Each fetch is saved to
+scripts/repos.json, which is used when the API can't be reached.
 
 The look borrows from the PS2 boot screen and memory card browser: towers of light in a dark
 blue fog, and saves that float above the card. Every image shares one background colour and is
@@ -14,8 +19,12 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
+import os
 import random
+import sys
 import textwrap
+import urllib.request
 from html import escape
 from pathlib import Path
 
@@ -23,6 +32,7 @@ import config as C
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = Path(__file__).resolve().parent / "assets"
+REPOS_CACHE = Path(__file__).resolve().parent / "repos.json"
 RAW = f"https://raw.githubusercontent.com/{C.USERNAME}/{C.USERNAME}/main/assets"
 PROFILE = f"https://github.com/{C.USERNAME}"
 
@@ -126,6 +136,66 @@ def frame(x: float, y: float, w: float, h: float, title: str, note: str, code: i
             + f'<rect x="{x + 20}" y="{y + 46}" width="{w - 40}" height="1" fill="url(#rule)" opacity=".6"/>')
 
 
+# ---------------------------------------------------------------- projects
+
+def fetch_repos() -> list[dict]:
+    """Public repos owned by the user, from the GitHub API. Keeps only the fields used."""
+    url = f"https://api.github.com/users/{C.USERNAME}/repos?type=owner&per_page=100"
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+    if os.environ.get("GITHUB_TOKEN"):
+        request.add_header("Authorization", f"Bearer {os.environ['GITHUB_TOKEN']}")
+    with urllib.request.urlopen(request, timeout=20) as response:
+        repos = json.load(response)
+    keep = ("name", "html_url", "description", "language", "topics", "fork", "archived", "created_at")
+    return sorted(({k: r.get(k) for k in keep} for r in repos), key=lambda r: r["created_at"])
+
+
+def load_repos(offline: bool) -> list[dict]:
+    """Fresh from GitHub when possible (and cached), else the last cached copy."""
+    if not offline:
+        try:
+            repos = fetch_repos()
+            REPOS_CACHE.write_text(json.dumps(repos, indent=2) + "\n", encoding="utf-8")
+            return repos
+        except OSError as error:
+            print(f"GitHub API unreachable ({error}); using {REPOS_CACHE.name}", file=sys.stderr)
+    return json.loads(REPOS_CACHE.read_text(encoding="utf-8")) if REPOS_CACHE.exists() else []
+
+
+def github_save(repo: dict) -> dict:
+    """A save made from what GitHub knows about a repo."""
+    lang = repo["language"] or "Code"
+    topics = repo["topics"] or []
+    stack = [label for topic, label in C.STACK_TOPICS.items() if topic in topics][:2]
+    return {
+        "name": repo["name"],
+        "url": repo["html_url"],
+        "icon": C.LANGUAGE_ICONS.get(lang, C.DEFAULT_ICON),
+        "lang": lang,
+        "desc": repo["description"],
+        "stack": " · ".join(stack) or lang,
+    }
+
+
+def projects(repos: list[dict]) -> list[dict]:
+    """config.PROJECTS in their order, each filled in from GitHub where it has a repo there,
+    then the repos config doesn't mention, oldest first. Forks, archived repos, repos without
+    a description and HIDDEN_REPOS are left out."""
+    shown = [r for r in repos if not r["fork"] and not r["archived"] and r["description"]
+             and r["name"] not in C.HIDDEN_REPOS]
+    from_github = {r["name"]: github_save(r) for r in shown}
+    saves = [{**from_github.get(p["name"], {}), **p} for p in C.PROJECTS]
+    named = {p["name"] for p in C.PROJECTS}
+    for name, save in from_github.items():
+        if name in named:
+            continue
+        # The tint used least so far, so a new save stands apart from its neighbours.
+        used = [s["tint"] for s in saves]
+        save["tint"] = min(C.TINTS, key=used.count)
+        saves.append(save)
+    return saves
+
+
 # ---------------------------------------------------------------- hero
 
 def towers(ox: float, oy: float, n: int, unit: float, seed: int, ceiling: float) -> str:
@@ -216,17 +286,20 @@ def save(x: float, y: float, p: dict, TILE_W: float) -> str:
     return "".join(out)
 
 
-def memory_card(phone: bool) -> str:
+def memory_card(saves: list[dict], phone: bool) -> str:
     cols, width = (2, 520) if phone else (4, 1000)
-    rows = -(-len(C.PROJECTS) // cols)
+    rows = -(-len(saves) // cols)
     pw = width - 32
     tile_w = (pw - 40 - (cols - 1) * GAP) / cols
     ph = 62 + rows * TILE_H + (rows - 1) * GAP + 22
-    body = [frame(16, 0, pw, ph, "memory card", f"slot 1 · {len(C.PROJECTS)} saves", C.ICON_CARD)]
-    for k, p in enumerate(C.PROJECTS):
+    body = [frame(16, 0, pw, ph, "memory card", f"slot 1 · {len(saves)} saves", C.ICON_CARD)]
+    for k, p in enumerate(saves):
         r, c = divmod(k, cols)
-        body.append(save(36 + c * (tile_w + GAP), 62 + r * (TILE_H + GAP), p, tile_w))
-    return svg(width, ph + 16, "".join(body), "Projects: " + ", ".join(p["name"] for p in C.PROJECTS))
+        # A last row that isn't full is centred under the others.
+        in_row = min(cols, len(saves) - r * cols)
+        offset = (cols - in_row) * (tile_w + GAP) / 2
+        body.append(save(36 + offset + c * (tile_w + GAP), 62 + r * (TILE_H + GAP), p, tile_w))
+    return svg(width, ph + 16, "".join(body), "Projects: " + ", ".join(p["name"] for p in saves))
 
 
 # ---------------------------------------------------------------- now + stack
@@ -294,14 +367,14 @@ def desk_row(phone: bool) -> str:
 
 # ---------------------------------------------------------------- README
 
-def readme(base: str) -> str:
+def readme(saves: list[dict], base: str) -> str:
     def pair(name: str, alt: str, href: str) -> str:
         return (f'<a href="{href}"><picture><source media="{WIDE}" srcset="{base}/{name}.svg" />'
                 f'<img src="{base}/{name}-phone.svg" width="100%" align="top" alt="{alt}" /></picture></a>')
 
     def tech(p: dict) -> str:
         return p["stack"] if p["lang"] in p["stack"] else f"{p['lang']} · {p['stack']}"
-    projects = "\n".join(f"- [{p['name']}]({p['url']}): {p['desc']} ({tech(p)})" for p in C.PROJECTS)
+    projects = "\n".join(f"- [{p['name']}]({p['url']}): {p['desc']} ({tech(p)})" for p in saves)
     now = "\n".join(f"- **{title}** ({tag}): {line}" for title, tag, line in C.NOW)
     stack = "\n".join(f"- {g.capitalize()}: {', '.join(n for n, _ in items)}" for g, items in C.STACK.items())
     return f"""<!-- Generated by scripts/build.py. Edit scripts/config.py, then run it. -->
@@ -341,19 +414,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", default=RAW, help="URL or path the README loads the images from")
     parser.add_argument("--readme", type=Path, default=ROOT / "README.md")
+    parser.add_argument("--offline", action="store_true", help="use scripts/repos.json, don't call GitHub")
     args = parser.parse_args()
+    saves = projects(load_repos(args.offline))
 
     out = ROOT / "assets"
     out.mkdir(exist_ok=True)
     files = {
         "hero.svg": hero(1000, False), "hero-phone.svg": hero(520, True),
-        "memory.svg": memory_card(False), "memory-phone.svg": memory_card(True),
+        "memory.svg": memory_card(saves, False), "memory-phone.svg": memory_card(saves, True),
         "desk.svg": desk_row(False), "desk-phone.svg": desk_row(True),
     }
     for name, content in files.items():
         (out / name).write_text(content, encoding="utf-8", newline="\n")
-    args.readme.write_text(readme(args.base), encoding="utf-8", newline="\n")
-    print(f"wrote {len(files)} images to {out} and {args.readme}")
+    args.readme.write_text(readme(saves, args.base), encoding="utf-8", newline="\n")
+    print(f"wrote {len(files)} images to {out} and {args.readme} ({len(saves)} saves: "
+          + ", ".join(p["name"] for p in saves) + ")")
 
 
 if __name__ == "__main__":
