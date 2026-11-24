@@ -6,7 +6,8 @@
     python3 scripts/build.py --offline           # use scripts/repos.json instead of the GitHub API
 
 The memory card's saves are your public repos, fetched from the GitHub API (set GITHUB_TOKEN to
-avoid the rate limit), with config.PROJECTS merged on top. Each fetch is saved to
+avoid the rate limit), with config.PROJECTS merged on top. The "now" panel is the same repos,
+most recently pushed first, with their latest commit message. Each fetch is saved to
 scripts/repos.json, which is used when the API can't be reached.
 
 The look borrows from the PS2 boot screen and memory card browser: towers of light in a dark
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime
 import json
 import os
 import random
@@ -138,16 +140,28 @@ def frame(x: float, y: float, w: float, h: float, title: str, note: str, code: i
 
 # ---------------------------------------------------------------- projects
 
-def fetch_repos() -> list[dict]:
-    """Public repos owned by the user, from the GitHub API. Keeps only the fields used."""
-    url = f"https://api.github.com/users/{C.USERNAME}/repos?type=owner&per_page=100"
-    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+def github(path: str):
+    """GET a GitHub API path as JSON."""
+    request = urllib.request.Request(f"https://api.github.com/{path}",
+                                     headers={"Accept": "application/vnd.github+json"})
     if os.environ.get("GITHUB_TOKEN"):
         request.add_header("Authorization", f"Bearer {os.environ['GITHUB_TOKEN']}")
     with urllib.request.urlopen(request, timeout=20) as response:
-        repos = json.load(response)
-    keep = ("name", "html_url", "description", "language", "topics", "fork", "archived", "created_at")
-    return sorted(({k: r.get(k) for k in keep} for r in repos), key=lambda r: r["created_at"])
+        return json.load(response)
+
+
+def fetch_repos() -> list[dict]:
+    """Public repos owned by the user, oldest first, with the first line of each one's latest
+    commit message for the ten most recently pushed. Keeps only the fields used."""
+    keep = ("name", "html_url", "description", "language", "topics", "fork", "archived",
+            "created_at", "pushed_at")
+    repos = [{k: r.get(k) for k in keep}
+             for r in github(f"users/{C.USERNAME}/repos?type=owner&per_page=100")]
+    for repo in sorted(repos, key=lambda r: r["pushed_at"], reverse=True)[:10]:
+        commits = github(f"repos/{C.USERNAME}/{repo['name']}/commits?per_page=1")
+        if commits:
+            repo["last_commit"] = commits[0]["commit"]["message"].split("\n")[0].strip()
+    return sorted(repos, key=lambda r: r["created_at"])
 
 
 def load_repos(offline: bool) -> list[dict]:
@@ -160,6 +174,12 @@ def load_repos(offline: bool) -> list[dict]:
         except OSError as error:
             print(f"GitHub API unreachable ({error}); using {REPOS_CACHE.name}", file=sys.stderr)
     return json.loads(REPOS_CACHE.read_text(encoding="utf-8")) if REPOS_CACHE.exists() else []
+
+
+def shown_repos(repos: list[dict]) -> list[dict]:
+    """The repos the profile shows: not forks, not archived, with a description, not hidden."""
+    return [r for r in repos if not r["fork"] and not r["archived"] and r["description"]
+            and r["name"] not in C.HIDDEN_REPOS]
 
 
 def github_save(repo: dict) -> dict:
@@ -181,9 +201,7 @@ def projects(repos: list[dict]) -> list[dict]:
     """config.PROJECTS in their order, each filled in from GitHub where it has a repo there,
     then the repos config doesn't mention, oldest first. Forks, archived repos, repos without
     a description and HIDDEN_REPOS are left out."""
-    shown = [r for r in repos if not r["fork"] and not r["archived"] and r["description"]
-             and r["name"] not in C.HIDDEN_REPOS]
-    from_github = {r["name"]: github_save(r) for r in shown}
+    from_github = {r["name"]: github_save(r) for r in shown_repos(repos)}
     saves = [{**from_github.get(p["name"], {}), **p} for p in C.PROJECTS]
     named = {p["name"] for p in C.PROJECTS}
     for name, save in from_github.items():
@@ -194,6 +212,23 @@ def projects(repos: list[dict]) -> list[dict]:
         save["tint"] = min(C.TINTS, key=used.count)
         saves.append(save)
     return saves
+
+
+def now_entries(repos: list[dict]) -> list[tuple[str, str, str]]:
+    """(title, tag, line) rows for the "now" panel: config.NOW_PINNED, then the most recently
+    pushed repos with the push date and their latest commit message. A commit message that
+    starts with the repo's name ("omabateq: ...") loses that prefix."""
+    recent = sorted((r for r in shown_repos(repos) if r.get("pushed_at")),
+                    key=lambda r: r["pushed_at"], reverse=True)[:C.NOW_COUNT]
+    rows = list(C.NOW_PINNED)
+    for repo in recent:
+        pushed = datetime.datetime.fromisoformat(repo["pushed_at"].replace("Z", "+00:00"))
+        line = repo.get("last_commit") or repo["description"]
+        prefix = repo["name"].lower() + ":"
+        if line.lower().startswith(prefix):
+            line = line[len(prefix):].strip()
+        rows.append((repo["name"], f"{pushed.day} {pushed:%b}", line))
+    return rows or [("nothing yet", "", "Nothing pushed lately.")]
 
 
 # ---------------------------------------------------------------- hero
@@ -304,10 +339,10 @@ def memory_card(saves: list[dict], phone: bool) -> str:
 
 # ---------------------------------------------------------------- now + stack
 
-def now_body(x: float, y: float, w: float) -> tuple[str, float]:
+def now_body(rows: list[tuple[str, str, str]], x: float, y: float, w: float) -> tuple[str, float]:
     out, yy, rail = [], y + 80, x + 30
     first = last = yy
-    for k, (title, tag, line) in enumerate(C.NOW):
+    for k, (title, tag, line) in enumerate(rows):
         dot = (f'<circle cx="{rail}" cy="{yy - 5}" r="5" fill="{CYAN}" class="pulse" filter="url(#glow)"/>' if k == 0
                else f'<circle cx="{rail}" cy="{yy - 5}" r="4" fill="{BG}" stroke="{MUTED}"/>')
         out += [dot, t(x + 48, yy, title, 14, "b"), t(x + w - 20, yy, tag, 12, "d", "end")]
@@ -348,17 +383,17 @@ STACK_HEAD = ("stack", "what I build with", C.ICON_STACK)
 LABEL = "What I'm working on now, and the tools I use"
 
 
-def desk_row(phone: bool) -> str:
+def desk_row(rows: list[tuple[str, str, str]], phone: bool) -> str:
     if phone:
         w = 488
-        now, b1 = now_body(16, 0, w)
+        now, b1 = now_body(rows, 16, 0, w)
         h1 = b1 + 26
         stack, b2 = stack_body(16, h1 + 16, w)
         h2 = b2 + 22 - (h1 + 16)
         body = frame(16, 0, w, h1, *NOW_HEAD) + now + frame(16, h1 + 16, w, h2, *STACK_HEAD) + stack
         return svg(520, h1 + h2 + 32, body, LABEL)
     w = 476
-    now, b1 = now_body(16, 0, w)
+    now, b1 = now_body(rows, 16, 0, w)
     stack, b2 = stack_body(16 + w + 16, 0, w)
     h = max(b1 + 26, b2 + 22)
     body = frame(16, 0, w, h, *NOW_HEAD) + now + frame(16 + w + 16, 0, w, h, *STACK_HEAD) + stack
@@ -367,7 +402,7 @@ def desk_row(phone: bool) -> str:
 
 # ---------------------------------------------------------------- README
 
-def readme(saves: list[dict], base: str) -> str:
+def readme(saves: list[dict], rows: list[tuple[str, str, str]], base: str) -> str:
     def pair(name: str, alt: str, href: str) -> str:
         return (f'<a href="{href}"><picture><source media="{WIDE}" srcset="{base}/{name}.svg" />'
                 f'<img src="{base}/{name}-phone.svg" width="100%" align="top" alt="{alt}" /></picture></a>')
@@ -375,7 +410,7 @@ def readme(saves: list[dict], base: str) -> str:
     def tech(p: dict) -> str:
         return p["stack"] if p["lang"] in p["stack"] else f"{p['lang']} · {p['stack']}"
     projects = "\n".join(f"- [{p['name']}]({p['url']}): {p['desc']} ({tech(p)})" for p in saves)
-    now = "\n".join(f"- **{title}** ({tag}): {line}" for title, tag, line in C.NOW)
+    now = "\n".join(f"- **{title}** ({tag}): {line}" for title, tag, line in rows)
     stack = "\n".join(f"- {g.capitalize()}: {', '.join(n for n, _ in items)}" for g, items in C.STACK.items())
     return f"""<!-- Generated by scripts/build.py. Edit scripts/config.py, then run it. -->
 
@@ -416,18 +451,19 @@ def main() -> None:
     parser.add_argument("--readme", type=Path, default=ROOT / "README.md")
     parser.add_argument("--offline", action="store_true", help="use scripts/repos.json, don't call GitHub")
     args = parser.parse_args()
-    saves = projects(load_repos(args.offline))
+    repos = load_repos(args.offline)
+    saves, rows = projects(repos), now_entries(repos)
 
     out = ROOT / "assets"
     out.mkdir(exist_ok=True)
     files = {
         "hero.svg": hero(1000, False), "hero-phone.svg": hero(520, True),
         "memory.svg": memory_card(saves, False), "memory-phone.svg": memory_card(saves, True),
-        "desk.svg": desk_row(False), "desk-phone.svg": desk_row(True),
+        "desk.svg": desk_row(rows, False), "desk-phone.svg": desk_row(rows, True),
     }
     for name, content in files.items():
         (out / name).write_text(content, encoding="utf-8", newline="\n")
-    args.readme.write_text(readme(saves, args.base), encoding="utf-8", newline="\n")
+    args.readme.write_text(readme(saves, rows, args.base), encoding="utf-8", newline="\n")
     print(f"wrote {len(files)} images to {out} and {args.readme} ({len(saves)} saves: "
           + ", ".join(p["name"] for p in saves) + ")")
 

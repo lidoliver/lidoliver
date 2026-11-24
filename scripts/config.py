@@ -49,13 +49,12 @@ PROJECTS = [
     },
 ]
 
-# (title, tag, line)
-NOW = [
-    ("learning C", "C", "Pointers and memory, compiled and run from Neovim with one key."),
-    ("ps2-install", "Bash · C", "A patched hdl_dump for faster installs, with KDE and Hyprland frontends."),
-    ("PS2 modding", "OPL · MX4SIO", "Games from SD card and internal HDD on real hardware."),
-    ("this profile", "Python · SVG", "A script that draws these panels, PS2 boot-screen style."),
-]
+# The "now" panel: the repos you pushed to most recently, newest first, each with the date
+# and its latest commit message (build.py: now_entries()). Same repos as the memory card,
+# so HIDDEN_REPOS and repos without a description stay out. Hand-written entries in
+# NOW_PINNED, as (title, tag, line), go above them.
+NOW_COUNT = 3
+NOW_PINNED: list[tuple[str, str, str]] = []
 
 STACK = {
     "languages": [("Kotlin", 0xE634), ("Java", 0xE738), ("JavaScript", 0xE74E), ("C", 0xF0671), ("Bash", 0xE760)],

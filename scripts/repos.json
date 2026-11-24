@@ -10,7 +10,9 @@
     ],
     "fork": false,
     "archived": false,
-    "created_at": "2024-02-05T17:44:07Z"
+    "created_at": "2024-02-05T17:44:07Z",
+    "pushed_at": "2026-11-24T11:26:34Z",
+    "last_commit": "Memory card fills itself from GitHub; add omabateq"
   },
   {
     "name": "ps2-install",
@@ -20,7 +22,9 @@
     "topics": [],
     "fork": false,
     "archived": false,
-    "created_at": "2026-11-19T09:36:49Z"
+    "created_at": "2026-11-19T09:36:49Z",
+    "pushed_at": "2026-11-19T09:36:56Z",
+    "last_commit": "ps2-install: install PS2 games over OPL's NBD Server (KDE frontend)"
   },
   {
     "name": "Gruppe11_MOB3000",
@@ -30,7 +34,9 @@
     "topics": [],
     "fork": false,
     "archived": false,
-    "created_at": "2026-11-19T09:43:12Z"
+    "created_at": "2026-11-19T09:43:12Z",
+    "pushed_at": "2026-11-19T09:43:21Z",
+    "last_commit": "Legg til README med prosjektbeskrivelse og eget bidrag"
   },
   {
     "name": "omabateq",
@@ -46,6 +52,8 @@
     ],
     "fork": false,
     "archived": false,
-    "created_at": "2026-11-24T11:17:36Z"
+    "created_at": "2026-11-24T11:17:36Z",
+    "pushed_at": "2026-11-24T11:17:42Z",
+    "last_commit": "omabateq: headset battery + Easy Effects equalizer for the Omarchy bar"
   }
 ]

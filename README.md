@@ -21,10 +21,9 @@
 
 **Now**
 
-- **learning C** (C): Pointers and memory, compiled and run from Neovim with one key.
-- **ps2-install** (Bash · C): A patched hdl_dump for faster installs, with KDE and Hyprland frontends.
-- **PS2 modding** (OPL · MX4SIO): Games from SD card and internal HDD on real hardware.
-- **this profile** (Python · SVG): A script that draws these panels, PS2 boot-screen style.
+- **omabateq** (24 Nov): headset battery + Easy Effects equalizer for the Omarchy bar
+- **Gruppe11_MOB3000** (19 Nov): Legg til README med prosjektbeskrivelse og eget bidrag
+- **ps2-install** (19 Nov): install PS2 games over OPL's NBD Server (KDE frontend)
 
 **Stack**
 
