@@ -21,7 +21,7 @@
 
 **Now**
 
-- **omabateq** (24 Nov): Fix bogus low battery (e.g. "2%") shown instead of charging
+- **omabateq** (25 Nov): Headset on/off shows within seconds; fix a bar missing the headset after reboot
 - **Gruppe11_MOB3000** (19 Nov): Legg til README med prosjektbeskrivelse og eget bidrag
 - **ps2-install** (19 Nov): install PS2 games over OPL's NBD Server (KDE frontend)
 
